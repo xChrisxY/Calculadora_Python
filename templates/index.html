@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Calculadora con Árbol y Análisis de Tokens</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+        }
+
+        .calculator {
+            background-color: #333;
+            padding: 20px;
+            border-radius: 10px;
+            margin: 20px;
+        }
+
+        .display {
+            background-color: #666;
+            color: white;
+            padding: 10px;
+            margin-bottom: 10px;
+            text-align: right;
+            font-size: 24px;
+        }
+
+        .buttons {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 5px;
+        }
+
+        button {
+            padding: 15px;
+            font-size: 18px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            background-color: #666;
+            color: white;
+        }
+
+        button.operator {
+            background-color: #999;
+        }
+
+        button.equals {
+            background-color: #f90;
+        }
+
+        button.clear {
+            background-color: #f44;
+        }
+
+        button.memory {
+            background-color: #4CAF50;
+            color: white;
+        }
+
+        #tree {
+            margin: 20px;
+            width: 600px;
+            height: 400px;
+            background-color: white;
+            border-radius: 10px;
+            padding: 20px;
+        }
+
+        .token-table {
+            margin: 20px;
+            background-color: white;
+            border-radius: 10px;
+            padding: 20px;
+            width: 600px;
+        }
+
+        .token-table table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .token-table th,
+        .token-table td {
+            border: 1px solid #ddd;
+            padding: 8px;
+            text-align: left;
+        }
+
+        .token-table th {
+            background-color: #f5f5f5;
+        }
+
+        .node circle {
+            fill: white;
+            stroke: steelblue;
+            stroke-width: 2px;
+        }
+
+        .node text {
+            font: 12px sans-serif;
+        }
+
+        .link {
+            fill: none;
+            stroke: #ccc;
+            stroke-width: 2px;
+        }
+
+        .token-summary {
+            margin: 20px;
+            background-color: white;
+            border-radius: 10px;
+            padding: 20px;
+            width: 600px;
+        }
+
+        .token-summary h3 {
+            margin-bottom: 15px;
+        }
+
+        .summary-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+
+        .summary-item {
+            padding: 10px;
+            background-color: #f5f5f5;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="calculator">
+        <div class="display" id="display">0</div>
+        <div class="buttons">
+            <button onclick="appendNumber('(')">(</button>
+            <button onclick="appendNumber(')')">)</button>
+            <button onclick="appendNumber('|')">|</button>
+            <button class="operator" onclick="appendOperator('+')">+</button>
+
+            <button onclick="appendNumber('7')">7</button>
+            <button onclick="appendNumber('8')">8</button>
+            <button onclick="appendNumber('9')">9</button>
+            <button class="operator" onclick="appendOperator('/')">/</button>
+
+            <button onclick="appendNumber('4')">4</button>
+            <button onclick="appendNumber('5')">5</button>
+            <button onclick="appendNumber('6')">6</button>
+            <button class="operator" onclick="appendOperator('*')">*</button>
+
+            <button onclick="appendNumber('1')">1</button>
+            <button onclick="appendNumber('2')">2</button>
+            <button onclick="appendNumber('3')">3</button>
+            <button class="operator" onclick="appendOperator('-')">-</button>
+
+            <button onclick="appendNumber('0')">0</button>
+            <button onclick="appendNumber('.')">.</button>
+            <button class="equals" onclick="calculate()">=</button>
+            <button class="operator" onclick="appendOperator('+')">+</button>
+
+            <button class="memory" onclick="storeMemory()">MS</button>
+            <button class="memory" onclick="recallMemory()">MR</button>
+
+            <button class="backspace" onclick="backspace()">←</button>
+            <button class="clear" onclick="clearDisplay()">C</button>
+        </div>
+    </div>
+
+    <div class="token-table">
+        <h3>Análisis de Tokens</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Token</th>
+                    <th>Tipo</th>
+                </tr>
+            </thead>
+            <tbody id="token-list"></tbody>
+        </table>
+    </div>
+
+    <div class="token-summary">
+        <h3>Resumen de Tokens</h3>
+        <div class="summary-grid">
+            <div class="summary-item">
+                <strong>Total números enteros:</strong>
+                <span id="total-enteros">0</span>
+            </div>
+            <div class="summary-item">
+                <strong>Total operadores:</strong>
+                <span id="total-operadores">0</span>
+            </div>
+            <div class="summary-item">
+                <strong>Total puntos decimales:</strong>
+                <span id="total-puntos">0</span>
+            </div>
+            <div class="summary-item">
+                <strong>Total partes decimales:</strong>
+                <span id="total-decimales">0</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="tree"></div>
+
+    <script>
+        let display = document.getElementById('display');
+        let memory = null;
+
+        function appendNumber(num) {
+            if (display.textContent === '0') {
+                display.textContent = num;
+            } else {
+                display.textContent += num;
+            }
+        }
+
+        function appendOperator(op) {
+            display.textContent += op;
+        }
+
+        function backspace() {
+            if (display.textContent.length > 1) {
+                display.textContent = display.textContent.slice(0, -1);
+            } else {
+                display.textContent = '0';
+            }
+        }
+
+        function clearDisplay() {
+            display.textContent = '0';
+            d3.select("#tree").selectAll("*").remove();
+            document.getElementById('token-list').innerHTML = '';
+            updateSummary({
+                total_enteros: 0,
+                total_operadores: 0,
+                total_puntos_decimales: 0,
+                total_partes_decimales: 0
+            });
+        }
+
+        function storeMemory() {
+            memory = display.textContent;
+        }
+
+        function recallMemory() {
+            if (memory !== null) {
+                display.textContent = memory;
+            }
+        }
+
+        function updateSummary(summary) {
+            document.getElementById('total-enteros').textContent = summary.total_enteros;
+            document.getElementById('total-operadores').textContent = summary.total_operadores;
+            document.getElementById('total-puntos').textContent = summary.total_puntos_decimales;
+            document.getElementById('total-decimales').textContent = summary.total_partes_decimales;
+        }
+
+        function updateTokenTable(tokens) {
+            const tokenList = document.getElementById('token-list');
+            tokenList.innerHTML = '';
+
+            tokens.forEach(token => {
+                const row = document.createElement('tr');
+                const tokenCell = document.createElement('td');
+                const typeCell = document.createElement('td');
+
+                tokenCell.textContent = token.token;
+                typeCell.textContent = token.tipo;
+
+                row.appendChild(tokenCell);
+                row.appendChild(typeCell);
+                tokenList.appendChild(row);
+            });
+        }
+
+        function calculate() {
+            fetch('/calculate', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    expression: display.textContent
+                })
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        display.textContent = 'Error';
+                    } else {
+                        display.textContent = data.result;
+                        drawTree(data.tree);
+                        updateTokenTable(data.tokens);
+                        updateSummary(data.summary);
+                    }
+                })
+                .catch(error => {
+                    display.textContent = 'Error';
+                    console.error('Error en la solicitud:', error);
+                });
+        }
+
+        function drawTree(treeData) {
+            const width = 600, height = 400;
+
+            const svg = d3.select("#tree").append("svg")
+                .attr("width", width)
+                .attr("height", height);
+
+            const tree = d3.tree().size([width - 40, height - 40]);
+            const root = d3.hierarchy(treeData);
+            tree(root);
+
+            const link = svg.selectAll(".link")
+                .data(root.links())
+                .enter().append("path")
+                .attr("class", "link")
+                .attr("d", d3.linkHorizontal().x(d => d.x).y(d => d.y));
+
+            const node = svg.selectAll(".node")
+                .data(root.descendants())
+                .enter().append("g")
+                .attr("class", "node")
+                .attr("transform", d => `translate(${d.x + 20},${d.y + 20})`);
+
+            node.append("circle")
+                .attr("r", 5);
+
+            node.append("text")
+                .attr("dy", -10)
+                .attr("text-anchor", "middle")
+                .text(d => d.data.name);
+        }
+    </script>
+</body>
+</html>
